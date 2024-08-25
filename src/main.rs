@@ -5,13 +5,14 @@ use warp::ws::{Message, WebSocket};
 use futures::{StreamExt, SinkExt};
 use tokio::sync::mpsc;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 type Users = Arc<Mutex<HashMap<String, mpsc::UnboundedSender<Message>>>>;
 
 #[derive(Deserialize, Serialize)]
 struct MessagePayload {
     recipient_id: String,
-    message: String,
+    message: Value, // Allows for nested JSON objects
 }
 
 #[tokio::main]
@@ -61,7 +62,7 @@ async fn handle_connection(ws: WebSocket, user_id: String, users: Users) {
             let payload: Result<MessagePayload, _> = serde_json::from_str(msg.to_str().unwrap());
             if let Ok(payload) = payload {
                 println!(
-                    "Received message from user {}: {}",
+                    "Received message from user {}: {:?}",
                     user_id, payload.message
                 );
                 if let Some(recipient_tx) = users.lock().unwrap().get(&payload.recipient_id) {
@@ -69,7 +70,7 @@ async fn handle_connection(ws: WebSocket, user_id: String, users: Users) {
                         "Forwarding message from user {} to user {}",
                         user_id, payload.recipient_id
                     );
-                    let _ = recipient_tx.send(Message::text(payload.message));
+                    let _ = recipient_tx.send(Message::text(serde_json::to_string(&payload.message).unwrap()));
                 } else {
                     println!(
                         "Recipient with ID {} not found. Message from user {} was not delivered.",
@@ -77,7 +78,7 @@ async fn handle_connection(ws: WebSocket, user_id: String, users: Users) {
                     );
                 }
             } else {
-                println!("Failed to parse message from user {}: ", user_id,);
+                println!("Failed to parse message from user {}: {:?}", user_id, msg);
             }
         }
     }
